@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>С 8 марта!❤️</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    /* Сброс стилей и базовая настройка */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      color: white;
+      background-color: #000;
+      background-repeat: no-repeat;
+      font-family: 'Marck Script', cursive, sans-serif;
+    }
+
+    .title {
+      font-size: 5em;
+    }
+
+    .c-heart {
+      position: absolute;
+      width: 300px;
+      height: 400px;
+      opacity: 1;
+    }
+    [loaded] .c-heart {
+      position: relative;
+    }
+
+    .c-heart::before {
+      content: '';
+    }
+
+    .c-heart-alt {
+      font-size: 8em;
+      color: #ff7171;
+      margin: 0 0.2em;
+    }
+    [loaded] .c-heart-alt {
+      display: none;
+    }
+
+    .shadow {
+      position: relative;
+    }
+    .shadow::before,
+    .shadow::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 15%;
+      z-index: 2;
+    }
+    .shadow::before {
+      left: 0;
+      background: linear-gradient(to left, rgba(0,0,0,0), rgba(0,0,0,1));
+    }
+    .shadow::after {
+      right: 0;
+      background: linear-gradient(to left, rgba(0,0,0,1), rgba(0,0,0,0));
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Заголовки и контейнер для сердца -->
+  <span class="title">C</span>
+  <div class="shadow">
+    <canvas class="c-heart" data-canvas="heart">8</canvas>
+    <span class="c-heart-alt">8</span>
+  </div>
+  <span class="title">Марта</span>
+
+  <script>
+    // Класс для рендеринга анимации сердца с помощью WebGL
+    class HeartGLRender {
+      static get DURATION() { return 10; } // Продолжительность одного цикла анимации в секундах
+
+      constructor(el) {
+        this.el = el;
+        if (!this.el) throw new Error('Элемент canvas не найден или не передан в конструктор.');
+
+        // ИСПРАВЛЕНО: получение контекста WebGL с помощью this.el
+        this.gl = this.el.getContext("webgl") || this.el.getContext("experimental-webgl");
+        if (!this.gl) {
+          throw new Error('WebGL не поддерживается вашим браузером или отключён.');
+        }
+
+        // Создаём шейдеры
+        this.vertexShader   = HeartGLRender.compileShader(this.gl, VERTEX, this.gl.VERTEX_SHADER);
+        this.fragmentShader = HeartGLRender.compileShader(this.gl, FRAGMENT, this.gl.FRAGMENT_SHADER);
+
+        // Создаём и линкуем программу
+        this.program = HeartGLRender.createProgram(this.gl, [this.vertexShader, this.fragmentShader]);
+
+        // Создаём буфер с координатами
+        this.buffer = HeartGLRender.createBuffer(this.gl);
+
+        // Получаем ссылки на uniform-переменные
+        this.widthHandler  = this.gl.getUniformLocation(this.program, 'width');
+        this.heightHandler = this.gl.getUniformLocation(this.program, 'height');
+        this.positionHandler = HeartGLRender.createPositionHandler(this.gl, this.program);
+
+        this.timeHandler = this.gl.getUniformLocation(this.program, 'time');
+
+        // Первичная подгонка размеров и запуск первого рендера
+        this.resize();
+        this.redraw();
+
+        // Указываем, что элемент успешно загружен
+        this.el.parentNode.toggleAttribute('loaded', true);
+      }
+
+      resize() {
+        const width  = this.el.offsetWidth;
+        const height = this.el.offsetHeight;
+
+        // Устанавливаем размеры canvas, настраиваем viewport
+        this.el.width  = width;
+        this.el.height = height;
+        this.gl.viewport(0, 0, width, height);
+
+        // Передаём размеры в шейдер
+        this.gl.uniform1f(this.widthHandler, width);
+        this.gl.uniform1f(this.heightHandler, height);
+      }
+
+      redraw() {
+        const current = Date.now();
+        const start   = this.timeStart = this.timeStart || current;
+        // Считаем, сколько времени прошло в рамках анимационного цикла
+        const time    = (current - start) % (HeartGLRender.DURATION * 1000);
+        this.time     = time / 1000;
+
+        // Передаём время в шейдер
+        this.gl.uniform1f(this.timeHandler, this.time);
+
+        // Отрисовываем (TRIANGLE_STRIP связывает 4 вершины в полигон, покрывающий весь экран)
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+      }
+
+      static compileShader(gl, shaderSource, shaderType) {
+        const shader = gl.createShader(shaderType);
+        gl.shaderSource(shader, shaderSource);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error('Ошибка компиляции шейдера: ' + gl.getShaderInfoLog(shader));
+        }
+        return shader;
+      }
+
+      static createProgram(gl, shaders = []) {
+        const program = gl.createProgram();
+        shaders.forEach((shader) => gl.attachShader(program, shader));
+        gl.linkProgram(program);
+        gl.useProgram(program);
+        return program;
+      }
+
+      static createBuffer(gl) {
+        // Четыре точки для покрытия всего экрана (от -1 до +1 по X и Y)
+        const bounds = new Float32Array([
+          -1.0,  1.0,  // верхний левый
+          -1.0, -1.0,  // нижний левый
+           1.0,  1.0,  // верхний правый
+           1.0, -1.0   // нижний правый
+        ]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, bounds, gl.STATIC_DRAW);
+        return buffer;
+      }
+
+      static createPositionHandler(gl, program) {
+        const attributeLocation = gl.getAttribLocation(program, 'position');
+        if (attributeLocation === -1) {
+          throw new Error('Атрибут "position" не найден в шейдере.');
+        }
+        gl.enableVertexAttribArray(attributeLocation);
+        gl.vertexAttribPointer(
+          attributeLocation,
+          2, // по 2 координаты на каждую вершину
+          gl.FLOAT,
+          false,
+          2 * 4, // длина одного набора данных: 2 float = 2*4 байта
+          0
+        );
+        return attributeLocation;
+      }
+    }
+
+    // Запускаем код, когда DOM загрузится
+    function ready(fn) {
+      if (document.readyState !== 'loading') {
+        setTimeout(fn);
+      } else {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(fn));
+      }
+    }
+
+    // Основной запуск, инициализация HeartGLRender
+    ready(() => {
+      // Ищем все элементы, где data-canvas установлено в "heart"
+      const targets = Array.from(document.querySelectorAll('[data-canvas="heart"]'));
+
+      // Создаём для каждого канваса экземпляр HeartGLRender
+      const handlers = targets.map(el => new HeartGLRender(el));
+
+      // Цикл рендера
+      function drawLoop() {
+        handlers.forEach(h => h.redraw());
+        requestAnimationFrame(drawLoop);
+      }
+      drawLoop();
+
+      // При изменении размера окна корректируем размеры канваса
+      function resizeHandler() {
+        handlers.forEach(h => h.resize());
+      }
+      window.addEventListener('resize', resizeHandler, false);
+    });
+
+    // Шейдеры
+    const VERTEX = `
+      attribute vec2 position;
+      void main() {
+        gl_Position = vec4(position, 0.0, 1.0);
+      }
+    `;
+
+    const FRAGMENT = `
+      precision highp float;
+
+      // Uniform-переменные, передаваемые из JS
+      uniform float time;
+      uniform float width;
+      uniform float height;
+
+      // Разрешение экрана (canvas)
+      vec2 resolution = vec2(width, height);
+
+      #define POINT_COUNT 8
+
+      vec2 points[POINT_COUNT];
+      const float speed = -0.5;
+      const float len = 0.3;
+      float intensity = 1.5;
+      float radius = 0.02;
+
+      // Функция вычисления расстояния до квадратичной кривой Безье
+      float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){
+        vec2 a = B - A;
+        vec2 b = A - 2.0 * B + C;
+        vec2 c = a * 2.0;
+        vec2 d = A - pos;
+        float kk = 1.0 / dot(b, b);
+        float kx = kk * dot(a, b);
+        float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
+        float kz = kk * dot(d, a);
+        float res = 0.0;
+        float p = ky - kx * kx;
+        float p3 = p * p * p;
+        float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
+        float h = q * q + 4.0 * p3;
+        if (h >= 0.0) {
+          h = sqrt(h);
+          vec2 x = (vec2(h, -h) - q) / 2.0;
+          vec2 uv = sign(x) * pow(abs(x), vec2(1.0 / 3.0));
+          float t = uv.x + uv.y - kx;
+          t = clamp(t, 0.0, 1.0);
+          vec2 qos = d + (c + b * t) * t;
+          res = length(qos);
+        } else {
+          float z = sqrt(-p);
+          float v = acos(q / (p * z * 2.0)) / 3.0;
+          float m = cos(v);
+          float n = sin(v) * 1.732050808;
+          vec3 t = vec3(m + m, -n - m, n - m) * z - kx;
+          t = clamp(t, 0.0, 1.0);
+          vec2 qos = d + (c + b * t.x) * t.x;
+          float dis = dot(qos, qos);
+          res = dis;
+          qos = d + (c + b * t.y) * t.y;
+          dis = dot(qos, qos);
+          res = min(res, dis);
+          qos = d + (c + b * t.z) * t.z;
+          dis = dot(qos, qos);
+          res = min(res, dis);
+          res = sqrt(res);
+        }
+        return res;
+      }
+
+      // Функция для получения координат на "кривой сердца"
+      vec2 getHeartPosition(float t) {
+        return vec2(
+          16.0 * sin(t) * sin(t) * sin(t),
+          -(13.0 * cos(t) - 5.0 * cos(2.0 * t)
+          - 2.0 * cos(3.0 * t) - cos(4.0 * t))
+        );
+      }
+
+      // Функция для придания "свечения" (glow)
+      float getGlow(float dist, float radius, float intensity) {
+        return pow(radius / dist, intensity);
+      }
+
+      // Получаем расстояние до сегментов сердца
+      float getSegment(float t, vec2 pos, float offset, float scale){
+        for (int i = 0; i < POINT_COUNT; i++){
+          // (speed * t) заставляет сердце "двигаться" по кривой
+          points[i] = getHeartPosition(
+            offset + float(i) * len + fract(speed * t) * 6.28
+          );
+        }
+        vec2 c = (points[0] + points[1]) / 2.0;
+        vec2 c_prev;
+        float dist = 10000.0; // Начальное большое значение
+        for (int i = 0; i < POINT_COUNT - 1; i++){
+          c_prev = c;
+          c = (points[i] + points[i + 1]) / 2.0;
+          dist = min(dist, sdBezier(
+            pos, scale * c_prev, scale * points[i], scale * c
+          ));
+        }
+        return max(0.0, dist);
+      }
+
+      void main() {
+        // Нормализуем координаты (0..1)
+        vec2 uv = gl_FragCoord.xy / resolution.xy;
+        float widthHeightRatio = resolution.x / resolution.y;
+
+        vec2 centre = vec2(0.5, 0.5);
+
+        // Смещаем систему координат в центр экрана
+        vec2 pos = centre - uv;
+        // Выравниваем пропорции
+        pos.y /= widthHeightRatio;
+
+        // Смещаем сердце по вертикали (два сегмента выше/ниже)
+        vec2 pos1 = pos + vec2(0.0, 0.3);
+        vec2 pos2 = pos + vec2(0.0, -0.175);
+
+        // Масштабы для сегментов
+        float scale1 = 0.00003 * height;
+        float scale2 = 0.00005 * height;
+
+        float t = time;
+        vec3 col = vec3(0.0);
+
+        // Первый сегмент
+        float dist = getSegment(t, pos1, 0.0, scale1);
+        float glow = getGlow(dist, radius, intensity);
+        // Белая сердцевина (сглаживание по дистанции)
+        col += 10.0 * vec3(smoothstep(0.003, 0.001, dist));
+        // Розовое свечение
+        col += glow * vec3(1.0, 0.0, 0.2);
+
+        // Второй сегмент
+        dist = getSegment(t, pos1, 3.0, scale1);
+        glow = getGlow(dist, radius, intensity);
+        col += 10.0 * vec3(smoothstep(0.003, 0.001, dist));
+        col += glow * vec3(1.0, 0.0, 0.2);
+
+        // Третий сегмент
+        dist = getSegment(t, pos2, 0.0, scale2);
+        glow = getGlow(dist, radius, intensity);
+        col += 10.0 * vec3(smoothstep(0.003, 0.001, dist));
+        col += glow * vec3(1.0, 0.0, 0.0);
+
+        // Четвёртый сегмент
+        dist = getSegment(t, pos2, 3.4, scale2);
+        glow = getGlow(dist, radius, intensity);
+        col += 10.0 * vec3(smoothstep(0.003, 0.001, dist));
+        col += glow * vec3(1.0, 0.0, 0.0);
+
+        // Тон-маппинг (1 - exp(-x)) для красивого свечения
+        col = 1.0 - exp(-col);
+        // Небольшая гамма-коррекция
+        col = pow(col, vec3(0.95));
+
+        // Устанавливаем итоговый цвет
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+  </script>
+</body>
+<body>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="script/main.js"></script>
+<audio id="backgroundMusic" loop>
+      <source src="assets/blue.mp3" type="audio/mpeg">
+      Your browser does not support the audio element.
+  </audio>
+
+  <script>
+  function setupMusic() {
+            const music = document.getElementById('backgroundMusic');
+            const startTime = 0; // Время в секундах (1 минута 30 секунд)
+
+            music.addEventListener('loadedmetadata', function() {
+                // Ждём, пока метаданные загрузятся, чтобы можно было установить currentTime
+                music.currentTime = startTime;
+            });
+
+            // Можно добавить логирование для проверки
+            music.addEventListener('play', () => console.log('Музыка играет с', music.currentTime, 'секунды'));
+            music.addEventListener('timeupdate', () => console.log('Текущее время:', music.currentTime));
+
+            document.addEventListener('click', function startMusic() {
+                music.play().catch(error => console.log('Autoplay prevented:', error));
+                document.removeEventListener('click', startMusic);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', setupMusic);
+        </script>
+      </body>
+</html>
